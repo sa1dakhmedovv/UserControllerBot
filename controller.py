@@ -1,5 +1,3 @@
-# controller.py
-
 import asyncio
 from telethon import TelegramClient, errors
 from telethon.errors import FloodWaitError, RPCError
@@ -14,8 +12,8 @@ class UserbotController:
         self.admin_id = admin_id
 
         self.delay_seconds = 5
-        # {session_name: {"task": task, "index": int, "floodwait": int}}
         self.sessions = {}
+        self.session_locks = {}   # 🔒 Har bir session uchun Lock
 
     def set_delay(self, seconds):
         self.delay_seconds = seconds
@@ -41,25 +39,26 @@ class UserbotController:
         print(f"[ERROR] {where}: {error}")
 
     async def create_group(self, client, title, user_to_add, session_name):
-        try:
-            result = await client(CreateChannelRequest(
-                title=title,
-                about="Avto-created group",
-                megagroup=True
-            ))
-            chat = result.chats[0]
+        async with self.session_locks[session_name]:
+            try:
+                result = await client(CreateChannelRequest(
+                    title=title,
+                    about="Avto-created group",
+                    megagroup=True
+                ))
 
-            await client(InviteToChannelRequest(chat.id, [user_to_add]))
+                chat = result.chats[0]
+                await client(InviteToChannelRequest(chat.id, [user_to_add]))
 
-            with open(f"groups_sessions/{session_name}.txt", "a", encoding="utf-8") as f:
-                f.write(f"{title}\n")
+                with open(f"groups_sessions/{session_name}.txt", "a", encoding="utf-8") as f:
+                    f.write(f"{title}\n")
 
-        except (FloodWaitError, RPCError, errors.rpcerrorlist.YouBlockedUserError, errors.ChatAdminRequiredError) as e:
-            await self.report_error("create_group RPCError", e)
-            raise
-        except Exception as e:
-            await self.report_error("create_group Exception", e)
-            raise
+            except (FloodWaitError, RPCError, errors.rpcerrorlist.YouBlockedUserError, errors.ChatAdminRequiredError) as e:
+                await self.report_error("create_group RPCError", e)
+                raise
+            except Exception as e:
+                await self.report_error("create_group Exception", e)
+                raise
 
     async def auto_create_groups(self, session_name, client, group_title, user_to_add, start_index):
         indeks = start_index
@@ -78,7 +77,7 @@ class UserbotController:
                 if session_name in self.sessions:
                     self.sessions[session_name]["floodwait"] = e.seconds
                 await self.report_error("auto_create_groups FloodWait", e)
-                await asyncio.sleep(e.seconds + 5)
+                await asyncio.sleep(e.seconds + 15)
 
             except RPCError as e:
                 await self.report_error("auto_create_groups RPCError", e)
@@ -89,32 +88,36 @@ class UserbotController:
                 break
 
     async def add_session(self, session_name, group_title, user_to_add, start_index=None):
-        try:
-            client = TelegramClient(f"sessions/{session_name}", self.api_id, self.api_hash)
-            await client.start()
+        if session_name not in self.session_locks:
+            self.session_locks[session_name] = asyncio.Lock()
 
-            if start_index is None:
-                try:
-                    with open(f"groups_sessions/{session_name}.txt", encoding="utf-8") as f:
-                        lines = f.readlines()
-                    start_index = len(lines) + 1
-                except FileNotFoundError:
-                    start_index = 1
+        async with self.session_locks[session_name]:
+            try:
+                client = TelegramClient(f"sessions/{session_name}", self.api_id, self.api_hash)
+                await client.start()
 
-            task = asyncio.create_task(
-                self.auto_create_groups(session_name, client, group_title, user_to_add, start_index)
-            )
-            self.sessions[session_name] = {
-                "task": task,
-                "index": start_index,
-                "floodwait": 0
-            }
+                if start_index is None:
+                    try:
+                        with open(f"groups_sessions/{session_name}.txt", encoding="utf-8") as f:
+                            lines = f.readlines()
+                        start_index = len(lines) + 1
+                    except FileNotFoundError:
+                        start_index = 1
 
-            return f"✅ Session '{session_name}' ishga tushdi. Start index: {start_index}"
+                task = asyncio.create_task(
+                    self.auto_create_groups(session_name, client, group_title, user_to_add, start_index)
+                )
+                self.sessions[session_name] = {
+                    "task": task,
+                    "index": start_index,
+                    "floodwait": 0
+                }
 
-        except Exception as e:
-            await self.report_error("add_session", e)
-            return f"❌ Session '{session_name}' ishga tushmadi: {e}"
+                return f"✅ Session '{session_name}' ishga tushdi. Start index: {start_index}"
+
+            except Exception as e:
+                await self.report_error("add_session", e)
+                return f"❌ Session '{session_name}' ishga tushmadi: {e}"
 
     async def stop_session(self, session_name):
         if session_name in self.sessions:
