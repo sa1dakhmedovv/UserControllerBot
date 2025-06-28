@@ -1,4 +1,5 @@
 import asyncio
+import time
 from telethon import TelegramClient, errors
 from telethon.errors import FloodWaitError, RPCError
 from telethon.tl.functions.channels import CreateChannelRequest, InviteToChannelRequest
@@ -23,10 +24,20 @@ class UserbotController:
             return "🚫 Hech qanday session ishlamayapti."
 
         txt = "✅ Ishlayotgan sessionlar:\n"
+        now = time.time()
+
         for name, data in self.sessions.items():
             indeks = data.get("index", "?")
             flood = data.get("floodwait", 0)
-            txt += f"🟢 {name}: Ishlayapti. FloodWait={flood}s, Next index={indeks}, delay={self.delay_seconds}\n"
+            timestamp = data.get("flood_timestamp", None)
+
+            if flood > 0 and timestamp:
+                qoldi = int(max(0, flood - (now - timestamp)))
+            else:
+                qoldi = 0
+
+            txt += f"🟢 {name}: Ishlayapti. FloodWait={qoldi}s, Next index={indeks}, delay={self.delay_seconds}\n"
+
         return txt
 
     async def report_error(self, where, error):
@@ -76,6 +87,7 @@ class UserbotController:
             except FloodWaitError as e:
                 if session_name in self.sessions:
                     self.sessions[session_name]["floodwait"] = e.seconds
+                    self.sessions[session_name]["flood_timestamp"] = time.time()
                 await self.report_error("auto_create_groups FloodWait", e)
                 await asyncio.sleep(e.seconds + 15)
 
@@ -110,7 +122,8 @@ class UserbotController:
                 self.sessions[session_name] = {
                     "task": task,
                     "index": start_index,
-                    "floodwait": 0
+                    "floodwait": 0,
+                    "flood_timestamp": None
                 }
 
                 return f"✅ Session '{session_name}' ishga tushdi. Start index: {start_index}"
