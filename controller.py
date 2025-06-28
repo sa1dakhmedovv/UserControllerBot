@@ -142,3 +142,36 @@ class UserbotController:
     async def stop_all(self):
         for name in list(self.sessions.keys()):
             await self.stop_session(name)
+
+
+    async def broadcast_to_all_groups(self, session_name, message_text, image_path=None):
+        try:
+            client = TelegramClient(f"sessions/{session_name}", self.api_id, self.api_hash)
+            await client.start()
+    
+            dialogs = await client.get_dialogs()
+            groups = [d for d in dialogs if d.is_group or d.is_channel and d.megagroup]
+
+            if not groups:
+                await self.report_error("broadcast", f"No groups found for session '{session_name}'")
+                return "🚫 Hech qanday guruh topilmadi."
+    
+            count = 0
+            for group in groups:
+                try:
+                    if image_path:
+                        await client.send_file(group.id, image_path, caption=message_text)
+                    else:
+                        await client.send_message(group.id, message_text)
+    
+                    count += 1
+                    await asyncio.sleep(5)
+                except Exception as e:
+                    await self.report_error("broadcast-send", f"Group {group.id}: {e}")
+
+            return f"✅ {count} ta guruhga yuborildi."
+    
+        except Exception as e:
+            await self.report_error("broadcast_main", e)
+            return f"❌ Xatolik: {e}"
+
