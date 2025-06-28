@@ -47,33 +47,62 @@ class UserbotController:
             except Exception as e:
                 print(f"[BOTGA YUBORISHDA XATO]: {e}")
 
-    async def create_group(self, client, title, user_to_add, session_name):
-        async with self.session_locks[session_name]:
-            try:
-                # ✅ Guruh yaratish
-                result = await client(CreateChannelRequest(
-                    title=title,
-                    about="Avto-created group",
-                    megagroup=True
-                ))
-                chat = result.chats[0]
+async def create_group(self, client, title, user_to_add, session_name):
+    async with self.session_locks[session_name]:
+        try:
+            # 📌 Sana va vaqt (UZ format)
+            now = datetime.now()
+            oylar = [
+                "yanvar", "fevral", "mart", "aprel", "may", "iyun",
+                "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr"
+            ]
+            sana_matn = f"{now.day}-{oylar[now.month - 1]} {now.year} yil"
 
-                # ✅ Foydalanuvchi qo'shish
-                await client(InviteToChannelRequest(chat.id, [user_to_add]))
+            # ✅ Guruh yaratish
+            result = await client(CreateChannelRequest(
+                title=title,
+                about=f"Avto-created group | Created on {sana_matn}",
+                megagroup=True
+            ))
+            chat = result.chats[0]
 
-                # ✅ groups_sessions papkasini yarat
-                os.makedirs("groups_sessions", exist_ok=True)
+            # ✅ Foydalanuvchini qo'shish
+            await client(InviteToChannelRequest(chat.id, [user_to_add]))
 
-                # ✅ Log fayliga yozish
-                with open(f"groups_sessions/{session_name}.txt", "a", encoding="utf-8") as f:
-                    f.write(f"{title}\n")
+            # ✅ Foydalanuvchini admin qilish
+            await client(EditAdminRequest(
+                channel=chat.id,
+                user_id=user_to_add,
+                admin_rights=self.admin_rights,
+                rank="Boss"
+            ))
 
-            except (FloodWaitError, RPCError, errors.rpcerrorlist.YouBlockedUserError, errors.ChatAdminRequiredError) as e:
-                await self.report_error("create_group RPCError", e)
-                raise
-            except Exception as e:
-                await self.report_error("create_group Exception", e)
-                raise
+            # ✅ Guruh linkini olish
+            invite = await client(ExportChatInviteRequest(chat.id))
+            link = invite.link
+
+            # ✅ Faylga yozish
+            with open(f"groups_sessions/{session_name}.txt", "a", encoding="utf-8") as f:
+                f.write(f"{title} | {link} | {sana_matn}\n")
+
+            # ✅ Guruhga xabar yuborish
+            group_message = (
+                f"📅 Guruh ochildi: {sana_matn}\n"
+                f"🔗 Havola: {link}"
+            )
+            await client.send_message(chat.id, group_message)
+
+            # ✅ Admin botga yuborish
+            if self.bot and self.admin_id:
+                await self.bot.send_message(self.admin_id, f"✅ {session_name} uchun guruh yaratildi.\n{group_message}")
+
+        except (FloodWaitError, RPCError, errors.rpcerrorlist.YouBlockedUserError, errors.ChatAdminRequiredError) as e:
+            await self.report_error("create_group RPCError", e)
+            raise
+        except Exception as e:
+            await self.report_error("create_group Exception", e)
+            raise
+
 
     async def auto_create_groups(self, session_name, client, group_title, user_to_add, start_index):
         indeks = start_index
