@@ -189,6 +189,19 @@ async def cmd_setdelay(message: types.Message):
     except ValueError:
         await message.reply("❗ Son bo'lishi kerak!")
 
+@dp.message_handler(commands=['broadcast'])
+async def cmd_broadcast(message: types.Message):
+    args = message.get_args().split()
+    if len(args) < 2:
+        return await message.reply("❗ Format:\n/broadcast session_name text")
+
+    session_name = args[0]
+    text = " ".join(args[1:])
+
+    res = await controller.broadcast_to_all_groups(session_name, text)
+    await message.reply(res)
+
+
 
 # ---------- MAIN ----------
 if __name__ == '__main__':
