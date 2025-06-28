@@ -110,7 +110,7 @@ class UserbotController:
 
                 if start_index is None:
                     try:
-                        with open(f"groups_sessions/{session_name}.txt", encoding="utf-8") as f:
+                        with open(f"sessions/{session_name}.txt", encoding="utf-8") as f:
                             lines = f.readlines()
                         start_index = len(lines) + 1
                     except FileNotFoundError:
